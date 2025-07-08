@@ -11,7 +11,7 @@ from matplotlib import font_manager, rc
 # --------------------------------------------------------------------------
 # 🖥️ 기본 설정 및 캐싱
 # --------------------------------------------------------------------------
-st.set_page_config(page_title="백테스트 결과 비교", page_icon="⚖️", layout="wide")
+st.set_page_config(page_title="백테스트 비교 분석", page_icon="⚖️", layout="wide")
 
 @st.cache_resource
 def set_font():
@@ -129,7 +129,6 @@ def run_analysis_and_compare(stock_name, start_date):
     krx_list = get_krx_list()
     try:
         stock_code = krx_list[krx_list['Name'] == stock_name]['Code'].iloc[0]
-        st.info(f"'{stock_name}' (종목코드: {stock_code}) 데이터를 분석합니다.")
     except IndexError:
         st.error("해당 종목을 찾을 수 없습니다."); return
 
@@ -148,7 +147,7 @@ def run_analysis_and_compare(stock_name, start_date):
     weekly.loc[(weekly['High'] > weekly['Prev_High']) & (weekly['Close'] > weekly['MA10']) & (weekly['CMF'] > 0), 'BuySignal'] = 1
     weekly.loc[(weekly['Low'] < weekly['Prev_Low']) & (weekly['Close'] < weekly['MA10']) & (weekly['CMF'] < 0), 'SellSignal'] = 1
     
-    # Fear & Greed 지수 계산
+    # Fear & Greed 지수 계산 (생략 - 기존과 동일)
     weekly['Momentum5'] = (np.log(weekly['Close']) - np.log(weekly['Close'].shift(5))) * 100
     rolling_low = weekly['Close'].rolling(window=52, min_periods=1).min(); rolling_high = weekly['Close'].rolling(window=52, min_periods=1).max()
     weekly['Position52W'] = ((weekly['Close'] - rolling_low) / (rolling_high - rolling_low)).clip(0, 1)
@@ -167,21 +166,20 @@ def run_analysis_and_compare(stock_name, start_date):
     bt_df_rev, summary_rev, actual_sell_signal = run_backtest_revised(weekly)
     weekly['ActualSellSignal'] = actual_sell_signal
     
+    st.info(f"'{stock_name}' (종목코드: {stock_code}) 분석이 완료되었습니다.")
+    
     # 그래프 그리기 (수정된 방식의 거래 시점 기준)
-    st.subheader(f"📈 {stock_name} ({stock_code}) 분석 차트")
-    fig, ax1 = plt.subplots(figsize=(16, 6))
-    ax1.plot(weekly.index, weekly['Close'], label='주간 종가', color='black')
-    ax1.plot(weekly.index, weekly['MA10'], label='MA10', linestyle='--', color='gray')
-    ax1.scatter(weekly[weekly['BuySignal'] == 1].index, weekly[weekly['BuySignal'] == 1]['Close'], color='lightcoral', marker='^', s=70, alpha=0.5, label='잠재 매수 신호')
+    st.subheader(f"📈 {stock_name} 분석 차트")
+    fig, ax1 = plt.subplots(figsize=(10, 7))
+    ax1.plot(weekly.index, weekly['Close'], label='종가', color='black'); ax1.plot(weekly.index, weekly['MA10'], label='MA10', linestyle='--', color='gray'); ax1.scatter(weekly[weekly['BuySignal'] == 1].index, weekly[weekly['BuySignal'] == 1]['Close'], color='lightcoral', marker='^', s=70, alpha=0.5, label='잠재 매수');
     if not bt_df_rev.empty:
-        ax1.scatter(bt_df_rev['EntryDate'], bt_df_rev['EntryPrice'], color='red', marker='^', s=100, label='실제 매수 (현실적)')
-    ax1.scatter(weekly[weekly['ActualSellSignal'] == 1].index, weekly[weekly['ActualSellSignal'] == 1]['Close'], color='blue', marker='v', s=100, label='실제 매도 (현실적)')
-    ax1.set_xlabel('날짜'); ax1.set_ylabel('종가', color='black'); ax1.grid(True)
+        ax1.scatter(bt_df_rev['EntryDate'], bt_df_rev['EntryPrice'], color='red', marker='^', s=100, label='실제 매수 (현실)')
+    ax1.scatter(weekly[weekly['ActualSellSignal'] == 1].index, weekly[weekly['ActualSellSignal'] == 1]['Close'], color='blue', marker='v', s=100, label='실제 매도 (현실)')
+    ax1.set_ylabel('종가'); ax1.grid(True);
     ax2 = ax1.twinx()
-    ax2.plot(weekly.index, weekly['FearGreedScore'], label='Fear & Greed 지수', color='darkorange')
-    ax2.axhline(0.5, color='r', linestyle='--', linewidth=0.8, label='과열(0.5)'); ax2.axhline(-0.5, color='g', linestyle='--', linewidth=0.8, label='침체(-0.5)')
-    ax2.set_ylabel('Fear & Greed 지수', color='darkorange'); ax2.tick_params(axis='y', labelcolor='darkorange')
-    fig.legend(loc='upper left', bbox_to_anchor=(0.1, 0.9))
+    ax2.plot(weekly.index, weekly['FearGreedScore'], label='F&G 지수', color='darkorange')
+    ax2.set_ylabel('Fear & Greed 지수', color='darkorange')
+    fig.legend(loc='upper center', bbox_to_anchor=(0.5, 0.05), fancybox=True, shadow=True, ncol=5)
     st.pyplot(fig)
 
     # 결과 비교 출력
@@ -190,13 +188,12 @@ def run_analysis_and_compare(stock_name, start_date):
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("#### 📉 기존 방식 <small>(Look-ahead Bias 포함)</small>", unsafe_allow_html=True)
+        st.markdown("#### 📉 기존 방식 <small>(비현실적)</small>", unsafe_allow_html=True)
         if summary_orig['total_trades'] > 0:
             st.metric("누적 수익률", f"{summary_orig['cum_return']:.2%}")
             st.metric("승률", f"{summary_orig['win_rate']:.2%}")
-            st.metric("총 트레이드 수", f"{summary_orig['total_trades']} 회")
             with st.expander("상세 거래 내역 보기"):
-                st.dataframe(bt_df_orig)
+                st.dataframe(bt_df_orig, use_container_width=True)
         else:
             st.warning("거래가 발생하지 않았습니다.")
 
@@ -205,24 +202,31 @@ def run_analysis_and_compare(stock_name, start_date):
         if summary_rev['total_trades'] > 0:
             st.metric("누적 수익률", f"{summary_rev['cum_return']:.2%}")
             st.metric("승률", f"{summary_rev['win_rate']:.2%}")
-            st.metric("총 트레이드 수", f"{summary_rev['total_trades']} 회")
             with st.expander("상세 거래 내역 보기"):
-                st.dataframe(bt_df_rev)
+                st.dataframe(bt_df_rev, use_container_width=True)
         else:
             st.warning("거래가 발생하지 않았습니다.")
 
 # --------------------------------------------------------------------------
-# 🌐 웹사이트 UI 구성
+# 🌐 웹사이트 UI 구성 (모바일 최적화)
 # --------------------------------------------------------------------------
-st.title("⚖️ 백테스트 방식 비교 분석")
+st.title("📈 주식 전략 비교 분석")
+st.caption("모바일 환경에 최적화되었습니다.")
 
 with st.expander("🔍 분석 설정하기", expanded=True):
     krx_list = get_krx_list()
-    stock_list = krx_list['Name'].tolist()
-    default_index = stock_list.index("삼성전자") if "삼성전자" in stock_list else 0
-    stock_name_input = st.selectbox("종목을 선택하세요", stock_list, index=default_index)
-    start_date_input = st.date_input("분석 시작일", date.today() - timedelta(days=5 * 365))
+    popular_stocks = ['삼성전자', 'SK하이닉스', 'LG에너지솔루션', '현대차', 'NAVER', '카카오', '삼성바이오로직스']
+    other_stocks = sorted([s for s in krx_list['Name'] if s not in popular_stocks])
+    stock_list = popular_stocks + other_stocks
     
+    stock_name_input = st.selectbox("종목을 선택하세요", stock_list)
+    start_date_input = st.date_input("분석 시작일", date.today() - timedelta(days=3 * 365))
+    
+    st.divider()
     if st.button("🚀 분석 실행", use_container_width=True):
         with st.spinner('데이터를 불러오고 두 가지 방식으로 분석하는 중입니다...'):
+            # 메인 분석 비교 함수를 호출합니다.
             run_analysis_and_compare(stock_name_input, start_date_input)
+
+st.divider()
+st.markdown("<sub>Made with Streamlit.</sub>", unsafe_allow_html=True)
